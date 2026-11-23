@@ -1,0 +1,10 @@
+field,type,unit_or_levels,source,rule,role
+year,integer,PSA annual reporting year,Year from PSA table 0033I3C41S1,Preserve source label without inventing calendar dates,Chronology
+region,character,Published regional labels or PHILIPPINES,Geolocation,Remove dot prefixes and footnote markers,Geographic category
+sex,character,Both Sexes / Female / Male,Sex,Use categories as published and exclude aggregate rows from models,Category
+survival_pct,numeric,percent 0 to 100,Value,Preserve reported percent and leave unreported values blank,Continuous outcome
+previous_survival_pct,numeric,percent 0 to 100,Derived from Value,Previous consecutive reporting year for same region and sex,Prior predictor
+previous_change_pp,numeric,percentage points,Derived from Value,Previous year minus second previous year within the same series,Prior predictor
+change_pp,numeric,percentage points,Derived from Value,Current year minus previous year within the same series,Outcome description
+retention_drop,integer,0 or 1,Derived from change_pp,1 if the reported rate falls by 3 percentage points or more. Blank when change is unavailable.,Binary target
+analysis_group,character,Train / Test / Descriptive,Pipeline cohort rules,Eligible comparable region-sex rows from 2004 through 2020 train and 2021-2024 rows test. Other rows are for description or national forecasting.,Time-based split
