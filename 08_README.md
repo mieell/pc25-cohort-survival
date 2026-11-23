@@ -56,6 +56,6 @@ Group number, roster, and individual contributions are pending. These eight area
 | Report rendering and review | | |
 | Presentation | | |
 | Setup and reproducibility | | |
-| Demo video and live walkthrough | | |
+| Live walkthrough | | |
 
 All members participate in the live presentation or demonstration and should be ready to explain their contribution. The guide recommends 12 minutes for the presentation and demo plus 8 minutes for Q&A, subject to the instructor's schedule.
