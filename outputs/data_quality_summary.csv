@@ -1,0 +1,10 @@
+"Check","Rows"
+"Rows in source extract",1539
+"Exact duplicate rows removed",0
+"Reported rates",1347
+"Unreported rates carried as missing",192
+"Reported rates at 100% retained",46
+"Modeled changes outside 1.5 IQR fences (retained)",48
+"Training rows",476
+"Later test rows",112
+"National observations",25
