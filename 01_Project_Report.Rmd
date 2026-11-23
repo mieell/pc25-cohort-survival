@@ -1,0 +1,174 @@
+---
+title: "Grade 7–10 Cohort Survival in the Philippines"
+subtitle: "National Teachers College | PC25 R Language w/Lab | Week 17 Final Terminal Assessment"
+author: "Vonn Christian Miel P. Meneses | BSIT 4.9"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    self_contained: true
+    math_method: mathml
+    code_folding: hide
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, fig.width = 8, fig.height = 4.2, fig.align = "center")
+source("04_Analysis_Pipeline.R", local = TRUE)
+p <- run_analysis()
+d <- p$data
+m <- p$models
+f <- p$forecast
+i <- p$inference
+cm <- m$logistic_result$matrix
+metric <- m$logistic_result$metrics
+num <- function(x) sprintf("%.2f", x)
+pct <- function(x) ifelse(is.na(x), "Undefined", sprintf("%.1f%%", 100 * x))
+latest <- tail(d$national, 1)
+ptest <- function(x) format.pval(x, digits = 3, eps = 0)
+```
+
+# Executive summary
+
+The published national junior high school cohort survival estimate was **`r latest$survival_pct`% in reporting year `r latest$year`**. In the group comparison, the female rate averaged **`r num(i$test$estimate)` points higher** than the male rate across matched region-years. The logistic model correctly flagged **`r cm[2,2]`** of **`r sum(cm[2,])`** later-period declines of at least three percentage points and missed **`r cm[2,1]`**. Use the dashboard to select **regional trends for follow-up** and verify abrupt changes with regional education offices. The regional indicators are aggregates and cannot identify which individual learners need support.
+
+# Decision question and data
+
+**Decision.** Where should regional education staff investigate weak Grade 7–10 cohort survival or signs of deterioration?
+
+1. How do the national trend and regional rates differ over time?
+2. How large is the average female–male gap within the same regional reporting years?
+3. Can past rates flag later drops of at least three percentage points?
+4. How far off is a simple national annual projection on a historical holdout?
+
+**Industry.** Student success and education operations. Week 12 used synthetic BPO records to investigate group differences in service outcomes. This project carries forward the method of comparing groups and checking predictions against outcomes, with a documented change to student retention. The earlier file lacked authentic chronological observations for forecasting.
+
+The [PSA OpenSTAT SDG cohort survival table](https://openstat.psa.gov.ph/PXWeb/pxweb/en/DB/DB__3I__G04/0033I3C41S1.px) identifies DepEd as the source. It defines cohort survival as the percentage of entrants reaching the final grade of their education level and uses the reconstructed cohort method. Junior high covers Grades 7–10. The project uses the published reporting-year labels with no inferred calendar dates. The pinned extract came from the [Philippine Data Explorer mirror](https://statistics.bettergov.ph/datasets/657e4a4528f3129d022d) (release `2026-09-22T10-54-38-a9e047f8723d`). The PSA metadata marks copyright “No.” We attribute the data to PSA and DepEd, and name the mirror used for retrieval.
+
+# Cleaning and exploratory analysis
+
+The pipeline imports text first, audits missing fields and duplicate geographic-year-sex keys, checks all reported rates are between zero and 100, and leaves source blanks missing. The original CSV is unchanged. Published 100% rates and unusually large year-to-year changes remain in the file. We keep only consecutive lags. Regional comparisons and models use female and male rows for a core group of regions from `r first_model_year`. The earliest inputs come from 2002 so the two-year lag excludes the merged IV-A/MIMAROPA records in 2000 and 2001. The model also excludes the new Negros Island Region and affected Regions VI and VII, and the historical BARMM/ARMM coverage change. The national series uses the separately published Philippines/Both Sexes values.
+
+```{r audit}
+knitr::kable(d$fields, caption = "Source schema and missing values")
+knitr::kable(d$audit, caption = "Data-quality and modeling coverage")
+knitr::kable(aggregate(survival_pct ~ sex, d$regional, function(x) {
+  c(n = length(x), mean = mean(x), median = median(x), SD = sd(x), IQR = IQR(x))
+}) |> do.call(what = data.frame), digits = 2, caption = "Descriptive statistics for modeled regional records")
+```
+
+```{r distribution}
+plot_distribution(d$regional)
+```
+
+The rates cover a wide range, with an upper bound at 100%. The high end includes values carried through directly from the source.
+
+```{r group-comparison, fig.height=5}
+plot_groups(d$regional)
+```
+
+Regional levels and female–male gaps vary. Review each group in its local context before assigning a cause.
+
+```{r association}
+plot_relationship(d$regional)
+```
+
+Rates often move with the previous year's level. Points far below the diagonal indicate larger reported declines.
+
+```{r national-series}
+plot_series(d$national)
+```
+
+The national estimate rose from `r d$national$survival_pct[1]`% in `r d$national$year[1]` to `r latest$survival_pct`% in `r latest$year`, with reversals along the way. The late observations include sharp swings. The source reports 100% for `r d$national$year[which.max(d$national$survival_pct)]`; this reconstructed estimate is retained and is not direct evidence that every learner completed junior high.
+
+# Matched group comparison
+
+The null hypothesis is an average annual female-minus-male gap of zero. The alternative is a nonzero gap. We pair the two rates within each region and year, average the matched gaps across regions within each year, and run a one-sample t-test on the annual averages. This gives each year equal weight and avoids treating all region-sex observations as independent.
+
+The average gap was **`r num(i$test$estimate)` percentage points** (95% CI `r num(i$test$conf.int[1])` to `r num(i$test$conf.int[2])`). The test gave t(`r unname(i$test$parameter)`) = `r num(i$test$statistic)`, p = `r ptest(i$test$p.value)`. At the 5% level, this result rejects a zero mean gap under the test assumptions. The gap is an average across the comparable regions and years, so it does not establish that every region had the same gap. Annual gaps have lag-one autocorrelation of `r num(i$lag_one)`. Treat the interval and p-value as approximate because the underlying education system can change gradually across consecutive years.
+
+```{r test-diagnostics, fig.height=3.5}
+old <- par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
+qqnorm(i$annual$gap_pp, main = "Annual paired gaps")
+qqline(i$annual$gap_pp, col = "#AB512F")
+acf(i$annual$gap_pp, main = "Annual gap autocorrelation")
+par(old)
+```
+
+# Regression and ANCOVA
+
+Models train on `r first_model_year`–2020 and test on 2021–2024. Predictor histories use only previous consecutive reporting years. The prior rate is centered using only the training mean and divided by ten, so its coefficient is per ten percentage points. The simple model fits $Y_t = \beta_0 + \beta_1 P_{t-1} + \epsilon_t$, where $P$ is centered and scaled prior survival. The multiple model adds prior change, region, and sex. The evaluation is a retrospective one-step test based on published values. It cannot recreate reporting delays or earlier data revisions.
+
+```{r regressions}
+knitr::kable(m$compare, digits = 3, caption = "Linear regression fit and held-out errors")
+knitr::kable(cbind(Estimate = coef(m$multiple), confint(m$multiple)), digits = 3,
+             caption = "Multiple regression estimates and conventional 95% intervals")
+```
+
+The simple model associates a ten-point higher prior-year rate with a `r num(coef(m$simple)["prior10"])`-point higher current-year rate. Its training R² was `r num(m$compare$R2[1])`, compared with `r num(m$compare$R2[2])` for the multiple model. Adjusted R² also increased from `r num(m$compare$Adjusted_R2[1])` to `r num(m$compare$Adjusted_R2[2])`, accounting for the extra predictors. On the later holdout, MAE fell by only `r num(diff(rev(m$compare$Test_MAE_pp)))` percentage points, so the extra predictors contributed little improvement in later-year accuracy. The adjusted coefficient for a ten-point increase in the previous-year rate is `r num(coef(m$multiple)["prior10"])` points, holding the other modeled variables fixed. Estimates describe associations between aggregate rates, especially fragile during large shifts in reporting conditions.
+
+```{r regression-diagnostics, fig.height=5.5}
+old <- par(mfrow = c(2, 2), mar = c(4, 4, 2, 1))
+plot(m$multiple, which = c(1, 2, 3, 5), id.n = 0)
+par(old)
+knitr::kable(data.frame(Term = names(m$vif), VIF = unname(m$vif)), digits = 2)
+```
+
+The largest encoded-column VIF was `r num(max(m$vif))`. The response is bounded and the residual plots show departures from a constant, normally distributed spread. Rows also repeat by region and year, so classical intervals may understate uncertainty.
+
+**ANCOVA.** The outcome is cohort survival. The group is sex, and the covariate is the previous-year rate. The nested test adds a sex-by-prior-rate interaction while adjusting for region and prior change. Its p-value is `r ptest(m$ancova$'Pr(>F)'[2])`. At the 5% level, the test gives little evidence that the association with prior survival differs by sex. The comparison relies on a roughly linear relationship and conventional residual assumptions. Repeated regional observations and uneven residual spread qualify the F-test. The estimated slope comparison describes aggregate groups. It cannot establish the effect of a program or an individual characteristic.
+
+```{r ancova}
+knitr::kable(m$ancova, digits = 4, caption = "Nested F-test for different slopes by sex")
+```
+
+# Decline classification
+
+A positive outcome is a reported drop of at least three percentage points from the previous reporting year. Three points is a project review threshold. The logistic model uses lagged rates, lagged change, region, and sex. The positive shares were `r pct(mean(m$train$retention_drop))` in training and `r pct(mean(m$test$retention_drop))` in testing. The fixed `r score_cutoff` threshold reflects a review queue that can tolerate extra flags. The baseline predicts the most common training class. All methods are deterministic.
+
+```{r classification-results}
+ps <- function(x) unname(pct(x))
+knitr::kable(unclass(cm), caption = "Test confusion matrix (0 = no flagged-size decline, 1 = decline)")
+knitr::kable(rbind(Logistic = ps(metric), Majority = ps(m$majority_result$metrics)) |>
+               setNames(names(metric)), caption = "Accuracy, precision, recall and F1 on the chronological holdout")
+knitr::kable(m$odds, digits = 3, row.names = FALSE, caption = "Conditional odds ratios and conventional intervals")
+```
+
+At the default cutoff, the review queue would contain `r sum(cm[,2])` flags: `r cm[2,2]` real declines and `r cm[1,2]` false alarms. Another `r cm[2,1]` declines would be missed, so staff should still review low observed rates even when the model raises no flag. Precision was `r pct(metric["Precision"])` and recall was `r pct(metric["Recall"])`. Precision measures how many flags are real declines. Recall measures how many real declines are caught. F1 balances them. The majority baseline raises zero flags, so its precision has a zero denominator. With region, sex, and prior change held fixed, each ten-point increase in the previous rate multiplies the estimated odds of a decline by `r num(m$odds$OR[m$odds$Term == "prior10"])`. A high starting rate also leaves more room for a decline, so this association needs context when prioritizing reviews. Use the dashboard threshold slider for exploration and check any operating cutoff on new data.
+
+# Annual national baseline forecast
+
+We use `r nrow(d$national)` consecutive source years from `r min(d$national$year)` to `r max(d$national$year)`. The national series is annual, so it cannot estimate within-year seasonality. A centered three-year moving average gives a descriptive trend on the training years only, with deviations shown separately. The last four years are a fixed-origin holdout. The baseline repeats the last available national rate. A three-year mean is included for comparison.
+
+```{r trend, fig.height=4.8}
+old <- par(mfrow = c(2, 1), mar = c(4, 4, 2, 1))
+with(f$trend, {
+  plot(year, survival_pct, type = "l", xlab = "", ylab = "Survival (%)", main = "Training annual trend")
+  lines(year, trend, col = "#AB512F", lwd = 2)
+  plot(year, remainder, type = "h", xlab = "Reporting year", ylab = "Points", main = "Deviation from smooth trend")
+})
+par(old)
+knitr::kable(f$errors, digits = 2, caption = "Fixed-origin forecast errors, percentage points")
+knitr::kable(f$holdout, digits = 2, caption = "Observed and forecast holdout years")
+```
+
+The last-rate baseline missed by an average of `r num(f$errors[1,"MAE"])` points. The three-year mean missed by `r num(f$errors[2,"MAE"])` points. This is one small holdout, so the comparison alone does not establish a dependable winner. The published-data cutoff is `r latest$year`. The projection repeats that final rate. The shaded interval uses the 10th and 90th percentiles of historical errors at each horizon and is bounded between 0 and 100. It is a planning range from this historical snapshot.
+
+```{r forecast}
+plot_forecast(d$national, f)
+knitr::kable(f$future, digits = 2, caption = "Three-year historical projection")
+```
+
+# Recommendations and ethics
+
+Review low current rates alongside the direction of change. Use model flags as a secondary screen for regional follow-up, then verify the underlying enrollment, promotion, transfer, and school completion records with local offices. Compare the two sex series in the same region and year. Leave program and funding decisions to verified local evidence.
+
+The data are published aggregates with no personal identifiers. The reconstructed cohort measure is an estimate and cannot trace individual learners. Revisions, boundary changes, and school reporting disruptions can affect comparisons. Models omit factors such as migration, attendance, household income, and changes in schooling policy. Avoid using the model for individual placement, eligibility, or risk labels.
+
+# Reproduction
+
+The pipeline rebuilds the cleaned CSV and audit tables from the supplied raw snapshot. This report and the Shiny dashboard call the same functions. The README provides the commands and identifies the source file. The data dictionary records each field and transformation.
+
+```{r session}
+sessionInfo()
+```
